@@ -500,23 +500,38 @@ export class StateGraphVisualizer {
     this.nodes = [];
     this.edges = [];
 
-    // Rows 0..k (e=0 Wild-type, e>=1 Mutants)
-    for (let e = 0; e <= k; e++) {
-      const y = (k === 0) 
-        ? h * 0.5 
-        : h * (0.28 + (e / k) * 0.44);
+    // Row 0: Wild-type (e=0)
+    // Row 1: Mutant / SNP (e=1)
+    const y0 = h * 0.32;
+    const y1 = h * 0.70;
 
-      for (let i = 0; i <= m; i++) {
+    for (let i = 0; i <= m; i++) {
+      // Row 0
+      this.nodes.push({
+        id: `q(${i},0)`,
+        label: `q(${i},0)`,
+        subLabel: `Match ${i}`,
+        x: pad + i * stepX,
+        y: y0,
+        r,
+        isStart: (i === 0),
+        isAccept: (i === m),
+        layer: 0,
+        pos: i
+      });
+
+      // Row 1 (if k >= 1)
+      if (k >= 1) {
         this.nodes.push({
-          id: `q(${i},${e})`,
-          label: `q(${i},${e})`,
-          subLabel: e === 0 ? `Match ${i}` : `Err ${e}`,
+          id: `q(${i},1)`,
+          label: `q(${i},1)`,
+          subLabel: `SNP Err`,
           x: pad + i * stepX,
-          y,
+          y: y1,
           r,
-          isStart: (i === 0 && e === 0),
+          isStart: false,
           isAccept: (i === m),
-          layer: e,
+          layer: 1,
           pos: i
         });
       }
@@ -536,28 +551,36 @@ export class StateGraphVisualizer {
     for (let i = 0; i < m; i++) {
       const matchChar = nfa.pattern[i];
 
-      // Exact match horizontal transitions for every error level e
-      for (let e = 0; e <= k; e++) {
+      // Exact match horizontal transitions
+      this.edges.push({
+        from: `q(${i},0)`,
+        to: `q(${i + 1},0)`,
+        symbols: [matchChar],
+        label: matchChar,
+        type: "forward",
+        isBackbone: true
+      });
+
+      if (k >= 1) {
+        // Mutant exact match horizontal
         this.edges.push({
-          from: `q(${i},${e})`,
-          to: `q(${i + 1},${e})`,
+          from: `q(${i},1)`,
+          to: `q(${i + 1},1)`,
           symbols: [matchChar],
           label: matchChar,
           type: "forward",
-          isBackbone: (e === 0)
+          isBackbone: true
         });
 
-        // SNP Mutation diagonal downward transition to e + 1
-        if (e < k) {
-          this.edges.push({
-            from: `q(${i},${e})`,
-            to: `q(${i + 1},${e + 1})`,
-            symbols: ["\u2260" + matchChar],
-            label: `\u2260${matchChar}`,
-            type: "mutation",
-            isBackbone: false
-          });
-        }
+        // SNP Mutation diagonal downward transition
+        this.edges.push({
+          from: `q(${i},0)`,
+          to: `q(${i + 1},1)`,
+          symbols: ["\u2260" + matchChar],
+          label: `SNP (\u2260${matchChar})`,
+          type: "mutation",
+          isBackbone: false
+        });
       }
     }
   }
@@ -629,10 +652,10 @@ export class StateGraphVisualizer {
       let lineWidth = 1.2;
 
       if (isFired) {
-        strokeColor = "#58a6ff";
+        strokeColor = "#d29922";
         lineWidth = 2.4;
       } else if (isHovered) {
-        strokeColor = "#79c0ff";
+        strokeColor = "#f0f6fc";
         lineWidth = 1.8;
       } else if (edge.type === "mutation") {
         strokeColor = "rgba(218, 54, 51, 0.65)"; // Alert Red / Coral for SNP mutation
@@ -729,13 +752,13 @@ export class StateGraphVisualizer {
       if (isActive) {
         ctx.beginPath();
         ctx.arc(node.x, node.y, r + 7, 0, Math.PI * 2);
-        ctx.strokeStyle = node.isAccept ? "rgba(46, 160, 67, 0.5)" : "rgba(88, 166, 255, 0.5)";
+        ctx.strokeStyle = node.isAccept ? "rgba(46, 160, 67, 0.5)" : "rgba(210, 153, 34, 0.5)";
         ctx.lineWidth = 2.0;
         ctx.stroke();
 
         ctx.beginPath();
         ctx.arc(node.x, node.y, r + 3, 0, Math.PI * 2);
-        ctx.strokeStyle = node.isAccept ? "rgba(46, 160, 67, 0.8)" : "rgba(88, 166, 255, 0.8)";
+        ctx.strokeStyle = node.isAccept ? "rgba(46, 160, 67, 0.8)" : "rgba(210, 153, 34, 0.8)";
         ctx.lineWidth = 1.5;
         ctx.stroke();
       }
@@ -743,12 +766,12 @@ export class StateGraphVisualizer {
       // Outer circle fill & border
       ctx.beginPath();
       ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = isActive ? (node.isAccept ? "#0e3a1f" : "#19283f") : (isHovered ? "#21262d" : "#161b22");
+      ctx.fillStyle = isActive ? (node.isAccept ? "#0e3a1f" : "#2b2313") : (isHovered ? "#21262d" : "#161b22");
       ctx.fill();
 
       let borderColor = "#30363d";
       if (node.isAccept) borderColor = "#2ea043";
-      else if (isActive) borderColor = "#58a6ff";
+      else if (isActive) borderColor = "#d29922";
       else if (isSelected) borderColor = "#f0f6fc";
       else if (isHovered) borderColor = "#8b949e";
 
@@ -843,7 +866,7 @@ export class StateGraphVisualizer {
     ctx.beginPath();
     ctx.roundRect(x - textWidth / 2 - 4, y - 6, textWidth + 8, 13, 3);
     ctx.fill();
-    ctx.strokeStyle = isFired ? "#58a6ff" : "rgba(48, 54, 61, 0.7)";
+    ctx.strokeStyle = isFired ? "#d29922" : "rgba(48, 54, 61, 0.7)";
     ctx.lineWidth = 0.8;
     ctx.stroke();
 
@@ -907,7 +930,7 @@ export class StateGraphVisualizer {
     ctx.stroke();
 
     // Title
-    ctx.fillStyle = node.isAccept ? "#2ea043" : "#58a6ff";
+    ctx.fillStyle = node.isAccept ? "#2ea043" : "#d29922";
     ctx.font = "bold 11px JetBrains Mono, monospace";
     ctx.fillText(title, boxX + 10, boxY + 16);
 
