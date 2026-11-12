@@ -11,11 +11,12 @@ export class MotifDFA {
    * @param {string} pattern - Target nucleotide pattern (e.g., 'GAATTC', 'ATG', 'CCTGAGGAG')
    */
   constructor(pattern) {
-    this.pattern = pattern.toUpperCase();
+    this.pattern = (pattern || "GAATTC").toUpperCase().replace(/[^ACGT]/g, "");
+    if (!this.pattern) this.pattern = "GAATTC";
     this.alphabet = ['A', 'C', 'G', 'T'];
     this.m = this.pattern.length;
     
-    // States: 0, 1, 2, ..., m (where state m is the accepting final state)
+    // States: q0, q1, ..., qm (where state qm is the accepting final state)
     this.states = Array.from({ length: this.m + 1 }, (_, i) => `q${i}`);
     this.startState = "q0";
     this.acceptStates = new Set([`q${this.m}`]);
@@ -36,7 +37,7 @@ export class MotifDFA {
       this.delta[`q${i}`] = {};
     }
 
-    // Base case: prefix table computation
+    // Prefix table computation
     for (let state = 0; state <= this.m; state++) {
       for (const char of this.alphabet) {
         // Find longest prefix of pattern that is a suffix of (pattern[0..state-1] + char)
@@ -51,6 +52,20 @@ export class MotifDFA {
         this.delta[`q${state}`][char] = `q${k}`;
       }
     }
+  }
+
+  getStateDescription(stateId) {
+    const idx = parseInt(stateId.replace("q", ""), 10);
+    if (isNaN(idx)) return "Automata state";
+    if (idx === 0) {
+      return `Initial state: Scanning sequence for first nucleotide '${this.pattern[0]}'`;
+    }
+    if (idx === this.m) {
+      return `Target matched! Full motif '${this.pattern}' completely recognized (${this.m}/${this.m} bp)`;
+    }
+    const matchedPrefix = this.pattern.substring(0, idx);
+    const nextExpected = this.pattern[idx];
+    return `Prefix matched: '${matchedPrefix}' (${idx}/${this.m} bp). Expecting '${nextExpected}'`;
   }
 
   reset() {
@@ -86,13 +101,15 @@ export class MotifDFA {
       });
     }
 
+    const matchedLength = parseInt(nextState.replace("q", ""), 10);
     const stepLog = {
       index,
       symbol,
       prevState,
       nextState,
       isAccepted,
-      matchedLength: parseInt(nextState.replace("q", ""), 10)
+      matchedLength,
+      description: this.getStateDescription(nextState)
     };
     this.history.push(stepLog);
 
@@ -105,8 +122,9 @@ export class OrfDFA {
    * DFA specifically designed to detect Open Reading Frames (ORFs):
    * Scans for Start Codon (ATG), then groups nucleotides into triplets until a Stop Codon (TAA, TAG, TGA) is encountered.
    */
-  constructor() {
+  constructor(readingFrame = 0) {
     this.alphabet = ['A', 'C', 'G', 'T'];
+    this.readingFrame = readingFrame; // 0, 1, or 2 (Frame +1, +2, +3)
     this.states = [
       "q_scan",       // Scanning for 'A' of 'ATG'
       "q_A",          // Saw 'A'
@@ -114,9 +132,6 @@ export class OrfDFA {
       "q_orf_c1",     // Inside ORF, expecting 1st nucleotide of codon
       "q_orf_c2",     // Inside ORF, expecting 2nd nucleotide of codon
       "q_orf_c3",     // Inside ORF, expecting 3rd nucleotide of codon
-      "q_stop_T",     // In codon pos 1, saw 'T' (potential stop)
-      "q_stop_TA",    // In codon pos 2, saw 'TA'
-      "q_stop_TG",    // In codon pos 2, saw 'TG'
       "q_orf_complete"// Final accepting state: full ORF discovered
     ];
     this.startState = "q_scan";
@@ -130,6 +145,30 @@ export class OrfDFA {
     this.history = [];
     this.inOrf = false;
     this.orfStartIndex = -1;
+  }
+
+  getStateDescription(stateId) {
+    switch (stateId) {
+      case "q_scan":
+        return "Scanning sequence: Searching for start codon 'ATG' (Methionine initiator)";
+      case "q_A":
+        return "Potential start codon: 'A' detected, checking for following 'T'";
+      case "q_AT":
+        return "Potential start codon: 'AT' detected, checking for following 'G'";
+      case "q_orf_c1":
+        return `In-frame reading: Expecting base 1 of codon #${this.currentOrfCodons.length + 1}`;
+      case "q_orf_c2":
+        return `In-frame reading: Base 1 '${this.currentCodon[0]}' read; expecting base 2`;
+      case "q_orf_c3":
+        return `In-frame reading: Bases '${this.currentCodon}' read; expecting base 3 to complete codon`;
+      case "q_orf_complete": {
+        const lastOrf = this.discoveredOrfs[this.discoveredOrfs.length - 1];
+        const stopCodon = lastOrf?.stopCodon || "STOP";
+        return `Stop signal validated: '${stopCodon}' terminated ORF (${lastOrf?.codons?.length || 0} codons, ${lastOrf?.length || 0} bp)`;
+      }
+      default:
+        return "Active state";
+    }
   }
 
   reset() {
@@ -155,7 +194,7 @@ export class OrfDFA {
     let event = "scan";
 
     if (!this.inOrf) {
-      // Searching for ATG
+      // Searching for ATG in frame
       if (prevState === "q_scan") {
         nextState = (symbol === "A") ? "q_A" : "q_scan";
       } else if (prevState === "q_A") {
@@ -191,14 +230,20 @@ export class OrfDFA {
         // Check for STOP codons: TAA, TAG, TGA
         if (codon === "TAA" || codon === "TAG" || codon === "TGA") {
           nextState = "q_orf_complete";
-          this.discoveredOrfs.push({
+          const orfEntry = {
+            id: `orf_${this.discoveredOrfs.length + 1}`,
             start: this.orfStartIndex,
             end: index,
             length: index - this.orfStartIndex + 1,
             codons: [...this.currentOrfCodons],
             stopCodon: codon,
-            aminoAcids: this.currentOrfCodons.map(c => GENETIC_CODE[c] || "???")
-          });
+            aminoAcids: this.currentOrfCodons.map(c => {
+              const info = GENETIC_CODE[c];
+              return info ? `${info.short} (${info.letter})` : "???";
+            }),
+            proteinSequence: this.currentOrfCodons.map(c => GENETIC_CODE[c]?.letter || "?").join("")
+          };
+          this.discoveredOrfs.push(orfEntry);
           event = "STOP_CODON_ACCEPTED";
           this.inOrf = false;
         } else {
@@ -222,7 +267,8 @@ export class OrfDFA {
       inOrf: this.inOrf,
       event,
       currentCodon: this.currentCodon,
-      currentOrfCodons: [...this.currentOrfCodons]
+      currentOrfCodons: [...this.currentOrfCodons],
+      description: this.getStateDescription(nextState)
     };
     this.history.push(stepLog);
 

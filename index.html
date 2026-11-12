@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BioAutomata — DNA Sequence Motif & Mutation Analyzer</title>
+  <title>Helixa — DNA Sequence & Mutation Analyzer (Automata Theory)</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
   <script type="importmap">
     {
@@ -19,124 +19,188 @@
 </head>
 <body>
 
-  <!-- Top App Navigation & Live Metrics Bar -->
+  <!-- Top Navigation & Live Metric Status Bar -->
   <header class="app-header">
     <div class="brand">
-      <div class="brand-icon">&#x25C8;</div>
-      <div>
-        <h1 class="brand-title">BioAutomata: DNA Helix Analyzer</h1>
+      <div class="brand-icon" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 15c6.667-6 13.333 0 20-6"/>
+          <path d="M9 22c1.798-1.998 2.518-3.995 2.807-5.993"/>
+          <path d="M15 2c-1.798 1.998-2.518 3.995-2.807 5.993"/>
+          <path d="M17 6l-2.5-2.5"/>
+          <path d="M14 8l-1-1"/>
+          <path d="M7 18l2.5 2.5"/>
+          <path d="M3.5 14.5l3 1"/>
+          <path d="M20.5 9.5l-3-1"/>
+        </svg>
       </div>
-      <span class="brand-tag">TOC &times; Genomics</span>
+      <div>
+        <h1 class="brand-title">Helixa</h1>
+      </div>
+      <span class="brand-tag">DNA Sequence &amp; Mutation Inspector</span>
     </div>
 
     <div class="header-actions">
       <div class="header-metrics">
         <div class="metric-chip">
-          <span class="metric-label">Scanning Progress</span>
-          <span class="metric-value" id="metric-progress">0 / 0 bp</span>
+          <span class="metric-label">Sequence Processed</span>
+          <span class="metric-value" id="metric-progress">0 / 0 bp (0%)</span>
         </div>
         <div class="metric-chip">
-          <span class="metric-label">GC-Content</span>
+          <span class="metric-label">GC Content</span>
           <span class="metric-value" id="metric-gc">0.0%</span>
         </div>
         <div class="metric-chip">
-          <span class="metric-label" id="metric-events-label">Events / Hits</span>
-          <span class="metric-value" id="metric-events">0</span>
+          <span class="metric-label" id="metric-events-label">Findings</span>
+          <span class="metric-value" id="metric-events">0 detected</span>
         </div>
       </div>
-      <button id="btn-fullscreen" class="btn btn-fs" title="Toggle Fullscreen View">
+      <button id="btn-fullscreen" class="btn btn-fs" title="Toggle Fullscreen View" aria-label="Toggle Fullscreen">
         <span>&#x26F6;</span> Fullscreen
       </button>
     </div>
   </header>
 
-  <!-- Main Three-Column Scientific Dashboard Grid -->
+  <!-- Main Three-Column Scientific Workbench Layout -->
   <main class="dashboard-grid">
 
-    <!-- Left Column: Controls, Presets, and Inputs -->
-    <aside class="glass-panel panel-left">
+    <!-- Left Column: Input, Benchmark Sequences & Execution Setup -->
+    <aside class="glass-panel panel-left" aria-label="Sequence and Tool Configuration">
       <div class="panel-title">
-        <span class="icon">&equiv;</span> Biological Input & Controls
+        <span class="icon">&#x2699;</span> Sequence &amp; Analysis Setup
       </div>
 
-      <!-- Preset Selector -->
+      <!-- Benchmark Preset Selector -->
       <div class="control-group">
-        <label class="control-label" for="preset-select">Genomic Case Study Preset</label>
-        <select id="preset-select" class="select-input"></select>
+        <label class="control-label" for="preset-select">Benchmark Gene Sequences</label>
+        <select id="preset-select" class="select-input" aria-label="Select benchmark sequence"></select>
       </div>
 
+      <!-- Educational Biological Description -->
       <div class="preset-description" id="preset-description">
-        Loading genomic case study details...
+        Select a benchmark sequence above to inspect its genetic structure and clinical significance.
       </div>
 
-      <!-- Analysis Mode Selector -->
+      <!-- Detection Mode Selector -->
       <div class="control-group">
-        <label class="control-label" for="mode-select">Automata Engine Mode</label>
-        <select id="mode-select" class="select-input">
-          <option value="orf">Open Reading Frame (ORF) Recognizer DFA</option>
-          <option value="motif_dfa">Exact Motif Matcher DFA (KMP)</option>
-          <option value="mutation_nfa">Mutation-Tolerant NFA (Levenshtein SNP)</option>
+        <label class="control-label" for="mode-select">Detection Mode</label>
+        <select id="mode-select" class="select-input" aria-label="Select detection mode">
+          <option value="orf">Open Reading Frame (ORF) Search — Start (ATG) to Stop Codon</option>
+          <option value="motif_dfa">Exact Motif Matching (KMP DFA) — Restriction Enzyme Cleavage Sites</option>
+          <option value="mutation_nfa">Genetic Mutation &amp; SNP Detection (NFA) — Point Mutations</option>
         </select>
       </div>
 
-      <!-- Target Motif Input (Shown for Motif DFA & NFA) -->
+      <!-- Configurable Target Motif & Mismatch Tolerance (Non-hardcoded) -->
       <div class="control-group" id="motif-input-group" style="display: none;">
-        <label class="control-label" for="motif-input">Target Motif &Sigma;*</label>
-        <input type="text" id="motif-input" class="text-input" value="GAATTC" placeholder="e.g. GAATTC or CCTGAGGAG">
+        <div class="label-with-hint">
+          <label class="control-label" for="motif-input">Target Sequence Pattern</label>
+          <span class="label-hint">Nucleotides {A, C, G, T}</span>
+        </div>
+        <input type="text" id="motif-input" class="text-input" value="GAATTC" placeholder="e.g. GAATTC or CCTGTGGAG" spellcheck="false">
+        
+        <!-- Target Pattern Quick Sample Pills -->
+        <div class="quick-pills" id="motif-quick-pills">
+          <span class="quick-pill-label">Presets:</span>
+          <button type="button" class="quick-pill" data-motif="GAATTC" title="EcoRI Cleavage Site">EcoRI (GAATTC)</button>
+          <button type="button" class="quick-pill" data-motif="AAGCTT" title="HindIII Cleavage Site">HindIII (AAGCTT)</button>
+          <button type="button" class="quick-pill" data-motif="CCTGAGGAG" title="Normal Beta-Globin Codon 6">HbA (CCTGAGGAG)</button>
+          <button type="button" class="quick-pill" data-motif="CCTGTGGAG" title="Sickle Cell Beta-Globin Codon 6">HbS (CCTGTGGAG)</button>
+        </div>
       </div>
 
-      <!-- Sequence Textarea Input -->
+      <!-- Mutation Tolerance Selector (Shown only in Mutation Mode) -->
+      <div class="control-group" id="tolerance-input-group" style="display: none;">
+        <label class="control-label" for="tolerance-select">Point Mutation / Mismatch Tolerance (k)</label>
+        <select id="tolerance-select" class="select-input" aria-label="Select mismatch tolerance">
+          <option value="1">k = 1 mismatch (Single Nucleotide Polymorphism / SNP)</option>
+          <option value="0">k = 0 mismatches (Exact Wild-Type match only)</option>
+          <option value="2">k = 2 mismatches (Dual-site variation / 2 substitutions)</option>
+        </select>
+      </div>
+
+      <!-- Reading Frame Selector (Shown only in ORF Mode) -->
+      <div class="control-group" id="frame-input-group">
+        <label class="control-label" for="frame-select">Translation Reading Frame</label>
+        <select id="frame-select" class="select-input" aria-label="Select translation frame">
+          <option value="0">Frame +1 (Starts at nucleotide 1)</option>
+          <option value="1">Frame +2 (Offset by +1 nucleotide)</option>
+          <option value="2">Frame +3 (Offset by +2 nucleotides)</option>
+        </select>
+      </div>
+
+      <!-- DNA Sequence Input & Action Toolbar -->
       <div class="control-group">
-        <label class="control-label" for="sequence-input">DNA Nucleotide Sequence &Sigma; = {A, C, G, T}</label>
-        <textarea id="sequence-input" class="textarea-input" spellcheck="false" placeholder="Enter DNA nucleotide characters..."></textarea>
+        <div class="textarea-header">
+          <label class="control-label" for="sequence-input">DNA Nucleotide Sequence</label>
+          <div class="textarea-actions">
+            <input type="file" id="file-upload" accept=".fasta,.fa,.fna,.txt" style="display: none;">
+            <button type="button" id="btn-upload-file" class="btn-text-action" title="Upload FASTA or Plain Text DNA File">&#128194; Upload</button>
+            <button type="button" id="btn-clean-seq" class="btn-text-action" title="Remove FASTA headers, line numbers, and whitespace">&#x2728; Clean</button>
+            <button type="button" id="btn-rev-comp" class="btn-text-action" title="Compute Reverse Complement strand">&#x21C4; Rev Comp</button>
+          </div>
+        </div>
+        <textarea id="sequence-input" class="textarea-input" spellcheck="false" placeholder="Paste standard or FASTA sequence (A, C, G, T)..."></textarea>
       </div>
 
-      <!-- Simulation Playback Controls -->
+      <!-- Playback Controls -->
       <div class="playback-bar">
-        <button id="btn-play" class="btn btn-primary" title="Start/Pause live sequence processing">
+        <button id="btn-play" class="btn btn-primary" title="Start live sequence inspection">
           <span>&blacktriangleright;</span> Play
         </button>
-        <button id="btn-step" class="btn" title="Consume single nucleotide">
+        <button id="btn-step" class="btn" title="Inspect next single nucleotide">
           <span>&rarrhk;</span> Step
         </button>
-        <button id="btn-reset" class="btn" title="Reset state to initial q0">
+        <button id="btn-reset" class="btn" title="Reset inspection to start">
           <span>&#8635;</span> Reset
         </button>
       </div>
 
-      <!-- Speed Slider -->
+      <!-- Speed Control -->
       <div class="slider-group">
         <div class="slider-header">
-          <span>Step Latency</span>
-          <span id="speed-display">200ms</span>
+          <span>Inspection Speed</span>
+          <span id="speed-display">200 ms / base</span>
         </div>
-        <input type="range" id="speed-slider" min="30" max="600" step="10" value="200">
+        <input type="range" id="speed-slider" min="30" max="600" step="10" value="200" aria-label="Inspection speed slider">
+        <div class="speed-presets">
+          <button type="button" class="speed-pill" data-speed="400">Slow (400ms)</button>
+          <button type="button" class="speed-pill active" data-speed="200">Normal (200ms)</button>
+          <button type="button" class="speed-pill" data-speed="60">Fast (60ms)</button>
+        </div>
       </div>
     </aside>
 
-    <!-- Center Column: 3D Interactive DNA Double-Helix with Higgs-Field or Full Automata State Graph -->
-    <section class="center-container">
-      <!-- Center Stage View Switcher Tabs -->
+    <!-- Center Column: Visual Stage (3D Helix / State Machine / Split View) -->
+    <section class="center-container" aria-label="Visual Exploration Stage">
+      <!-- Stage View Switcher Tabs -->
       <div class="center-stage-header">
-        <div class="stage-tabs">
-          <button id="tab-helix" class="stage-tab active" data-view="helix" title="View 3D DNA Double Helix with Higgs-Field Particle Dynamics">
-            <span class="tab-icon">&#x1F9EC;</span> 3D Helix Model
+        <div class="stage-tabs" role="tablist">
+          <button id="tab-helix" class="stage-tab active" data-view="helix" role="tab" aria-selected="true">
+            <span class="tab-icon">&#x1F9EC;</span> 3D Double Helix
           </button>
-          <button id="tab-automata" class="stage-tab" data-view="automata" title="View Large Interactive State Transition Diagram with all transitions &delta;">
-            <span class="tab-icon">&#x2B21;</span> State Transition Graph (Full Canvas)
+          <button id="tab-automata" class="stage-tab" data-view="automata" role="tab" aria-selected="false">
+            <span class="tab-icon">&#x2B21;</span> State Transition Diagram
           </button>
-          <button id="tab-split" class="stage-tab" data-view="split" title="View 3D Helix and Automata Graph side-by-side">
-            <span class="tab-icon">&#x25EB;</span> Split Dual View
+          <button id="tab-split" class="stage-tab" data-view="split" role="tab" aria-selected="false">
+            <span class="tab-icon">&#x25EB;</span> Split View
           </button>
         </div>
         <div class="stage-badge-status" id="stage-status-badge">
-          <span class="status-dot"></span> <span id="stage-status-text">KMP Exact Matcher DFA Active</span>
+          <span class="status-dot"></span> <span id="stage-status-text">Ready for sequence inspection</span>
         </div>
       </div>
 
       <div class="canvas-wrapper" id="center-canvas-wrapper">
         <!-- 3D Helix Canvas Stage View -->
         <div id="helix-canvas-container" class="stage-view-panel"></div>
+
+        <!-- 3D Helix Stage Toolbar -->
+        <div class="helix-stage-toolbar" id="helix-toolbar">
+          <button id="btn-helix-track" class="btn-canvas-tool active" title="Automatically keep active nucleotide centered in view">Follow Scanner</button>
+          <button id="btn-helix-rotate" class="btn-canvas-tool" title="Toggle gentle continuous rotation">Rotate</button>
+          <button id="btn-helix-reset-cam" class="btn-canvas-icon" title="Reset Camera Position">&#8635; Reset Cam</button>
+        </div>
 
         <!-- Full Automata State Graph Canvas Stage View -->
         <div id="center-graph-container" class="stage-view-panel" style="display: none;">
@@ -145,27 +209,27 @@
           <!-- Interactive Graph Canvas Toolbar -->
           <div class="canvas-overlay-toolbar">
             <div class="tool-group">
-              <span class="tool-group-label">Arcs:</span>
-              <button id="center-btn-arcs-all" class="btn-canvas-tool active" title="Show all delta transitions and loops">All &delta; Arcs</button>
-              <button id="center-btn-arcs-backbone" class="btn-canvas-tool" title="Show primary recognition path only">Backbone Only</button>
+              <span class="tool-group-label">Transitions:</span>
+              <button id="center-btn-arcs-all" class="btn-canvas-tool active" title="Show all transitions and loops">All &delta; Arcs</button>
+              <button id="center-btn-arcs-backbone" class="btn-canvas-tool" title="Show primary recognition path only">Primary Path</button>
             </div>
             <div class="tool-group">
               <span class="tool-group-label">Layout:</span>
-              <button id="center-btn-layout-auto" class="btn-canvas-tool active" title="Auto select best layout">Auto</button>
+              <button id="center-btn-layout-auto" class="btn-canvas-tool active" title="Automatically arrange states">Auto</button>
               <button id="center-btn-layout-linear" class="btn-canvas-tool" title="Single horizontal line">Linear</button>
-              <button id="center-btn-layout-serpentine" class="btn-canvas-tool" title="Multi-row wrapped layout">Serpentine</button>
+              <button id="center-btn-layout-serpentine" class="btn-canvas-tool" title="Wrapped multi-row layout">Wrapped</button>
             </div>
             <div class="tool-group">
               <button id="center-btn-zoom-in" class="btn-canvas-icon" title="Zoom In">+</button>
               <button id="center-btn-zoom-out" class="btn-canvas-icon" title="Zoom Out">&minus;</button>
               <button id="center-btn-zoom-fit" class="btn-canvas-icon" title="Fit Entire Diagram to Canvas">&boxbox; Fit</button>
               <button id="center-btn-zoom-reset" class="btn-canvas-icon" title="Reset Pan and Zoom">&#8635;</button>
-              <button id="center-btn-export" class="btn-canvas-icon" title="Download State Transition Diagram as PNG Image">&#128247; Export</button>
+              <button id="center-btn-export" class="btn-canvas-icon" title="Download State Transition Diagram as PNG">&#128247; Export PNG</button>
             </div>
           </div>
 
           <div class="canvas-overlay-badges" id="graph-overlay-badges">
-            <div class="canvas-badge" id="graph-spec-badge">Formal State Machine Graph</div>
+            <div class="canvas-badge" id="graph-spec-badge">State Transition Diagram</div>
           </div>
 
           <div class="nucleotide-legend graph-legend" id="graph-nucleotide-legend">
@@ -173,14 +237,14 @@
             <div class="legend-item"><span class="legend-dot" style="background:#1f6feb;"></span> C (Cytosine)</div>
             <div class="legend-item"><span class="legend-dot" style="background:#d29922;"></span> G (Guanine)</div>
             <div class="legend-item"><span class="legend-dot" style="background:#da3633;"></span> T (Thymine)</div>
-            <div class="legend-item hint-item"><span class="legend-hint-icon">&bull;</span> Drag to Pan &bull; Wheel to Zoom &bull; Hover State for &delta; Transitions</div>
+            <div class="legend-item hint-item"><span class="legend-hint-icon">&bull;</span> Drag to Pan &bull; Wheel to Zoom &bull; Click Node to Inspect Transitions</div>
           </div>
         </div>
 
         <!-- Overlays that apply to 3D helix when visible -->
         <div class="canvas-overlay-badges" id="helix-overlay-badges">
-          <div class="canvas-badge">3D Double Helix Parametric Model</div>
-          <div class="canvas-badge active-higgs">&bull; Higgs-Field Particle Dynamics Active</div>
+          <div class="canvas-badge">Interactive 3D Double Helix</div>
+          <div class="canvas-badge active-higgs">&bull; Molecular Particle Field Active</div>
         </div>
 
         <div class="nucleotide-legend" id="helix-nucleotide-legend">
@@ -193,24 +257,37 @@
 
       <!-- Current Sequence Scanner Ribbon -->
       <div class="stream-bar">
-        <span class="stream-label">Scanner Head:</span>
+        <span class="stream-label">Current Position:</span>
         <div class="stream-content" id="sequence-stream">
-          <!-- Filled dynamically by app.js -->
+          <!-- Populated dynamically by app.js -->
         </div>
+        <div class="stream-context-pill" id="stream-context-pill">Base 0</div>
       </div>
     </section>
 
-    <!-- Right Column: 2D State Diagram, Formal 5-Tuple, and Terminal Logs -->
-    <aside class="glass-panel panel-right">
-      <div class="panel-title panel-title-graph">
-        <span><span class="icon">&loz;</span> State Transition Graph &delta;</span>
-        <div class="panel-header-actions">
-          <button id="btn-sidebar-arcs-toggle" class="btn-icon-tiny" title="Toggle Full &delta; Arcs vs Backbone Path">&delta; Arcs</button>
-          <button id="btn-expand-to-center" class="btn-icon-tiny btn-accent" title="Open Full State Transition Diagram in Large Center Stage View">&#x26F6; Full View</button>
+    <!-- Right Column: Live Analysis State, Findings, & Formal Automata Details -->
+    <aside class="glass-panel panel-right" aria-label="Analysis Findings and Automata Theory">
+      
+      <!-- Current State & Biological Action Card -->
+      <div class="active-action-card" id="active-action-card">
+        <div class="action-card-header">
+          <span class="action-state-badge" id="action-state-badge">State q0</span>
+          <span class="action-event-pill" id="action-event-pill">Scanning</span>
+        </div>
+        <div class="action-description-text" id="action-description-text">
+          Ready to scan. Click <strong>Play</strong> or <strong>Step</strong> to begin inspecting nucleotides.
         </div>
       </div>
 
-      <!-- 2D Canvas State Visualizer -->
+      <!-- 2D Canvas Mini State Visualizer -->
+      <div class="panel-title panel-title-graph">
+        <span><span class="icon">&loz;</span> State Transition Graph</span>
+        <div class="panel-header-actions">
+          <button id="btn-sidebar-arcs-toggle" class="btn-icon-tiny" title="Toggle All Transitions vs Backbone Path">&delta; Arcs</button>
+          <button id="btn-expand-to-center" class="btn-icon-tiny btn-accent" title="Open Full State Diagram in Large Center Stage View">&#x26F6; Full View</button>
+        </div>
+      </div>
+
       <div class="state-graph-wrapper">
         <canvas id="state-graph-canvas"></canvas>
         <div class="mini-graph-controls">
@@ -220,18 +297,30 @@
         </div>
       </div>
 
-      <!-- Formal 5-Tuple Specification -->
-      <div class="panel-title" style="margin-top: 0.25rem;">
-        <span class="icon">&pi;</span> Formal Mathematical Spec
+      <!-- Analysis Findings Section (ORFs, Mutations, or Cleavage Sites) -->
+      <div class="panel-title" style="margin-top: 0.2rem;">
+        <span><span class="icon">&#x1F4CB;</span> Identified Genetic Features</span>
+        <button id="btn-export-findings" class="btn-icon-tiny" title="Download Findings Report as JSON">&#128190; Export</button>
       </div>
-      <div id="formal-spec-content"></div>
+      <div class="findings-container" id="findings-container">
+        <div class="findings-empty-state">No genetic features identified yet in this run.</div>
+      </div>
 
-      <!-- Transition Table Matrix -->
-      <div class="automata-table-wrapper" id="transition-table-content"></div>
+      <!-- Collapsible Formal Automata Mathematical Specification -->
+      <details class="formal-math-accordion" id="formal-math-accordion">
+        <summary class="formal-math-summary">
+          <span class="icon">&pi;</span> Formal Automata Definition &amp; Transition Matrix
+        </summary>
+        <div class="formal-math-body">
+          <div id="formal-spec-content"></div>
+          <div class="automata-table-wrapper" id="transition-table-content"></div>
+        </div>
+      </details>
 
-      <!-- Real-time Diagnostic Terminal Log -->
-      <div class="panel-title" style="margin-top: 0.25rem;">
-        <span class="icon">&gt;_</span> Diagnostic Terminal Output
+      <!-- Live Analysis Event Log -->
+      <div class="panel-title" style="margin-top: 0.2rem;">
+        <span><span class="icon">&gt;_</span> Live Event Log</span>
+        <button id="btn-clear-logs" class="btn-icon-tiny" title="Clear log history">Clear</button>
       </div>
       <div class="terminal-wrapper" id="terminal-logs"></div>
     </aside>

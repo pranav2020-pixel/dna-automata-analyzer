@@ -1,7 +1,7 @@
 /**
- * Main Application Orchestrator for BioAutomata DNA Helix Analyzer
- * Coordinates 3D Helix, Higgs-Field, Large Interactive State Transition Diagram,
- * View Mode Switching (3D Helix / Full Automata Canvas / Split View), and Biological Diagnostic Panels.
+ * Main Application Orchestrator for Helixa DNA Sequence & Mutation Analyzer
+ * Coordinates 3D Interactive Helix, 2D State Graphs, DFA/NFA Engines,
+ * Biological Diagnostics, and Educational Formal Automata Specifications.
  */
 
 import { DNA_PRESETS, BASE_COLORS, GENETIC_CODE } from "./data/presets.js";
@@ -17,23 +17,28 @@ class DnaAutomataApp {
     this.currentIndex = 0;
     this.mode = "orf"; // "orf" | "motif_dfa" | "mutation_nfa"
     this.targetMotif = "GAATTC";
+    this.tolerance = 1;
+    this.readingFrame = 0;
     this.activePreset = DNA_PRESETS[0];
+    this.findings = [];
 
-    // Automata instances
-    this.orfDfa = new OrfDFA();
+    // Automata engine instances
+    this.orfDfa = new OrfDFA(this.readingFrame);
     this.motifDfa = new MotifDFA(this.targetMotif);
-    this.mutationNfa = new MutationNFA("CCTGAGGAG", 1);
+    this.mutationNfa = new MutationNFA("CCTGAGGAG", this.tolerance);
 
     // Playback loop
     this.isPlaying = false;
     this.playTimer = null;
     this.stepSpeedMs = 200;
 
-    // Visualizers
+    // Visualizers & Camera controls
     this.helix3D = null;
     this.sidebarGraph = null;
     this.centerGraph = null;
     this.centerView = "helix"; // "helix" | "automata" | "split"
+    this.trackHelix = true;
+    this.rotateHelix = false;
 
     this.init();
   }
@@ -45,7 +50,7 @@ class DnaAutomataApp {
       this.helix3D = new DnaHelix3D(helixContainer);
     }
 
-    // 2. Initialize 2D State Graphs (Sidebar mini-graph & Center stage full-canvas)
+    // 2. Initialize 2D State Graphs (Sidebar mini-graph & Center stage full canvas)
     const sidebarCanvas = document.getElementById("state-graph-canvas");
     if (sidebarCanvas) {
       this.sidebarGraph = new StateGraphVisualizer(sidebarCanvas, { isMini: true, viewMode: "all", layoutMode: "auto" });
@@ -71,12 +76,14 @@ class DnaAutomataApp {
     if (!select) return;
 
     select.innerHTML = DNA_PRESETS.map((p, idx) => `
-      <option value="${idx}">${p.name}</option>
+      <option value="${idx}">${p.name} [${p.organism || 'Genomics'}]</option>
     `).join("");
 
     select.addEventListener("change", (e) => {
       const selected = DNA_PRESETS[parseInt(e.target.value, 10)];
-      this.loadPreset(selected);
+      if (selected) {
+        this.loadPreset(selected);
+      }
     });
   }
 
@@ -87,16 +94,40 @@ class DnaAutomataApp {
     const seqInput = document.getElementById("sequence-input");
     const motifInput = document.getElementById("motif-input");
     const descBox = document.getElementById("preset-description");
+    const tolSelect = document.getElementById("tolerance-select");
+    const frameSelect = document.getElementById("frame-select");
 
     if (seqInput) seqInput.value = preset.sequence;
     if (motifInput && preset.targetMotif) motifInput.value = preset.targetMotif;
-    if (descBox) descBox.innerText = preset.description;
+
+    if (descBox) {
+      let html = `<strong>${preset.organism || 'Genomic Sequence'} &bull; ${preset.gene || preset.name}</strong>: ${preset.description}`;
+      if (preset.clinicalContext) {
+        html += `<div style="margin-top:0.35rem;color:var(--text-secondary);font-size:0.75rem;line-height:1.4;">${preset.clinicalContext}</div>`;
+      }
+      if (preset.mutationDetails) {
+        html += `<div style="margin-top:0.3rem;color:var(--accent-amber);font-size:0.75rem;font-weight:600;">${preset.mutationDetails}</div>`;
+      }
+      descBox.innerHTML = html;
+    }
 
     this.sequence = preset.sequence;
-    this.targetMotif = preset.targetMotif || "ATG";
+    this.targetMotif = preset.targetMotif || (preset.mode === "motif_dfa" ? "GAATTC" : "CCTGAGGAG");
 
-    // Auto-select most appropriate mode for preset
-    if (preset.id.includes("mutation") || preset.id.includes("sickle")) {
+    if (preset.tolerance !== undefined) {
+      this.tolerance = preset.tolerance;
+      if (tolSelect) tolSelect.value = String(preset.tolerance);
+    }
+
+    if (preset.frame !== undefined) {
+      this.readingFrame = preset.frame;
+      if (frameSelect) frameSelect.value = String(preset.frame);
+    }
+
+    // Auto-select mode directly from preset configuration
+    if (preset.mode) {
+      this.setMode(preset.mode);
+    } else if (preset.id.includes("mutation") || preset.id.includes("sickle")) {
       this.setMode("mutation_nfa");
     } else if (preset.id.includes("restriction")) {
       this.setMode("motif_dfa");
@@ -113,8 +144,17 @@ class DnaAutomataApp {
     if (modeSelect) modeSelect.value = newMode;
 
     const motifGroup = document.getElementById("motif-input-group");
+    const tolGroup = document.getElementById("tolerance-input-group");
+    const frameGroup = document.getElementById("frame-input-group");
+
     if (motifGroup) {
       motifGroup.style.display = (this.mode === "orf") ? "none" : "flex";
+    }
+    if (tolGroup) {
+      tolGroup.style.display = (this.mode === "mutation_nfa") ? "flex" : "none";
+    }
+    if (frameGroup) {
+      frameGroup.style.display = (this.mode === "orf") ? "flex" : "none";
     }
 
     this.updateStatusBadge();
@@ -124,13 +164,16 @@ class DnaAutomataApp {
   setCenterView(viewName) {
     this.centerView = viewName;
 
-    // Update tab buttons
+    // Update tab active states
     document.querySelectorAll(".stage-tab").forEach(tab => {
-      tab.classList.toggle("active", tab.dataset.view === viewName);
+      const isSelected = tab.dataset.view === viewName;
+      tab.classList.toggle("active", isSelected);
+      tab.setAttribute("aria-selected", isSelected ? "true" : "false");
     });
 
     const wrapper = document.getElementById("center-canvas-wrapper");
     const helixContainer = document.getElementById("helix-canvas-container");
+    const helixToolbar = document.getElementById("helix-toolbar");
     const graphContainer = document.getElementById("center-graph-container");
     const helixBadges = document.getElementById("helix-overlay-badges");
     const helixLegend = document.getElementById("helix-nucleotide-legend");
@@ -140,6 +183,7 @@ class DnaAutomataApp {
     if (viewName === "helix") {
       wrapper.classList.remove("split-view");
       helixContainer.style.display = "block";
+      if (helixToolbar) helixToolbar.style.display = "flex";
       graphContainer.style.display = "none";
       if (helixBadges) helixBadges.style.display = "flex";
       if (helixLegend) helixLegend.style.display = "flex";
@@ -148,6 +192,7 @@ class DnaAutomataApp {
     } else if (viewName === "automata") {
       wrapper.classList.remove("split-view");
       helixContainer.style.display = "none";
+      if (helixToolbar) helixToolbar.style.display = "none";
       graphContainer.style.display = "block";
       if (helixBadges) helixBadges.style.display = "none";
       if (helixLegend) helixLegend.style.display = "none";
@@ -157,6 +202,7 @@ class DnaAutomataApp {
     } else if (viewName === "split") {
       wrapper.classList.add("split-view");
       helixContainer.style.display = "block";
+      if (helixToolbar) helixToolbar.style.display = "flex";
       graphContainer.style.display = "block";
       if (helixBadges) helixBadges.style.display = "flex";
       if (helixLegend) helixLegend.style.display = "none";
@@ -174,21 +220,23 @@ class DnaAutomataApp {
 
     let modeDesc = "";
     if (this.mode === "orf") {
-      modeDesc = "ORF Recognizer DFA (ATG \u2192 Codons \u2192 Stop)";
+      modeDesc = `ORF Search (Frame +${this.readingFrame + 1}: ATG \u2192 Codons \u2192 Stop)`;
     } else if (this.mode === "motif_dfa") {
-      modeDesc = `Exact Motif DFA (KMP: "${this.targetMotif}")`;
+      modeDesc = `Exact Motif DFA (Pattern: "${this.targetMotif}")`;
     } else {
-      modeDesc = `Levenshtein SNP NFA (k=1 Mismatch: "${this.targetMotif}")`;
+      modeDesc = `SNP Mutation NFA (Tolerance k=${this.tolerance}: "${this.targetMotif}")`;
     }
 
-    const viewDesc = this.centerView === "automata" ? " [Full State Diagram Active]" : 
-                    (this.centerView === "split" ? " [Split View Active]" : "");
+    const viewDesc = this.centerView === "automata" ? " [Full State Diagram]" : 
+                    (this.centerView === "split" ? " [Split View]" : "");
     badgeText.innerText = `${modeDesc}${viewDesc}`;
   }
 
   resetSimulation() {
     this.pause();
     this.currentIndex = 0;
+    this.findings = [];
+    this.renderFindings();
 
     const seqInput = document.getElementById("sequence-input");
     if (seqInput) {
@@ -197,47 +245,65 @@ class DnaAutomataApp {
 
     const motifInput = document.getElementById("motif-input");
     if (motifInput) {
-      this.targetMotif = motifInput.value.replace(/[^acgtACGT]/g, "").toUpperCase() || "ATG";
+      this.targetMotif = motifInput.value.replace(/[^acgtACGT]/g, "").toUpperCase() || "GAATTC";
     }
 
-    // Reset Automata
-    this.orfDfa.reset();
+    const tolSelect = document.getElementById("tolerance-select");
+    if (tolSelect) {
+      this.tolerance = parseInt(tolSelect.value, 10);
+    }
+
+    const frameSelect = document.getElementById("frame-select");
+    if (frameSelect) {
+      this.readingFrame = parseInt(frameSelect.value, 10);
+    }
+
+    // Reset Automata instances
+    this.orfDfa = new OrfDFA(this.readingFrame);
     this.motifDfa = new MotifDFA(this.targetMotif);
-    this.mutationNfa = new MutationNFA(this.targetMotif, 1);
+    this.mutationNfa = new MutationNFA(this.targetMotif, this.tolerance);
 
     // Update 3D Helix
     if (this.helix3D) {
       this.helix3D.setSequence(this.sequence);
+      this.helix3D.setAutoTrack(this.trackHelix);
+      this.helix3D.setAutoRotate(this.rotateHelix);
     }
 
-    // Configure State Graphs (Both Sidebar and Center Full Canvas)
-    let specBadgeText = "Formal State Machine Graph";
+    // Configure State Graphs (Both Sidebar mini-graph and Center stage full canvas)
+    let specBadgeText = "State Transition Diagram";
     if (this.mode === "orf") {
       this.sidebarGraph?.loadOrfGraph(this.orfDfa);
       this.centerGraph?.loadOrfGraph(this.orfDfa);
       this.sidebarGraph?.setActiveStates("q_scan");
       this.centerGraph?.setActiveStates("q_scan");
-      specBadgeText = `ORF DFA \u2022 7 Functional States \u2022 Triplet & Stop Logic`;
+      specBadgeText = `ORF Recognizer DFA \u2022 Frame +${this.readingFrame + 1} \u2022 Triplet & Stop Logic`;
 
     } else if (this.mode === "motif_dfa") {
       this.sidebarGraph?.loadMotifDfaGraph(this.motifDfa);
       this.centerGraph?.loadMotifDfaGraph(this.motifDfa);
       this.sidebarGraph?.setActiveStates("q0");
       this.centerGraph?.setActiveStates("q0");
-
       const totalTrans = (this.motifDfa.states.length) * this.motifDfa.alphabet.length;
-      specBadgeText = `KMP Exact Matcher DFA \u2022 ${this.motifDfa.states.length} States \u2022 ${totalTrans} \u03B4 Transitions`;
+      specBadgeText = `Motif Matcher DFA \u2022 ${this.motifDfa.states.length} States \u2022 ${totalTrans} Transitions`;
 
     } else {
       this.sidebarGraph?.loadMutationNfaGraph(this.mutationNfa);
       this.centerGraph?.loadMutationNfaGraph(this.mutationNfa);
       this.sidebarGraph?.setActiveStates("q(0,0)");
       this.centerGraph?.setActiveStates("q(0,0)");
-      specBadgeText = `Mutation SNP NFA (k=1) \u2022 ${this.mutationNfa.states.length} States \u2022 Dual Layer Lattice`;
+      specBadgeText = `Mutation NFA (k=${this.tolerance}) \u2022 ${this.mutationNfa.states.length} States \u2022 ${this.tolerance + 1}-Layer Lattice`;
     }
 
     const graphSpecBadge = document.getElementById("graph-spec-badge");
     if (graphSpecBadge) graphSpecBadge.innerText = specBadgeText;
+
+    // Reset Action Card to standby
+    this.updateActionCard(
+      this.mode === "mutation_nfa" ? "q(0,0)" : (this.mode === "orf" ? "q_scan" : "q0"),
+      "Ready to Scan",
+      "Press <strong>Play</strong> or <strong>Step</strong> to inspect nucleotides one-by-one."
+    );
 
     // Reset Logs and Metrics
     this.clearLogs();
@@ -250,7 +316,12 @@ class DnaAutomataApp {
   step() {
     if (this.currentIndex >= this.sequence.length) {
       this.pause();
-      this.logToConsole(`[COMPLETE] Reached end of DNA sequence (${this.sequence.length} bp processed).`, "success");
+      this.logToConsole(`[COMPLETE] Reached end of DNA sequence (${this.sequence.length} bp processed). Total findings: ${this.findings.length}.`, "success");
+      this.updateActionCard(
+        "Complete",
+        "Finished",
+        `Sequence processing finished (${this.sequence.length} bp processed, ${this.findings.length} genetic feature(s) identified).`
+      );
       return;
     }
 
@@ -258,38 +329,79 @@ class DnaAutomataApp {
     let stepLog = null;
     let isAccepted = false;
     let isMutation = false;
+    let actionState = "Active";
+    let actionEvent = "Scanning";
+    let actionDesc = "";
 
     if (this.mode === "orf") {
       stepLog = this.orfDfa.step(char, this.currentIndex);
       isAccepted = stepLog.isAccepted;
+      actionState = stepLog.nextState;
+      actionDesc = this.orfDfa.getStateDescription();
 
       const trans = { from: stepLog.prevState, to: stepLog.nextState, symbol: char };
       this.sidebarGraph?.setActiveStates(stepLog.nextState, trans);
       this.centerGraph?.setActiveStates(stepLog.nextState, trans);
 
       if (stepLog.event === "START_CODON_FOUND") {
-        this.logToConsole(`[DFA START] Start Codon 'ATG' identified at pos ${this.currentIndex - 2}. Open Reading Frame Initiated.`, "info");
+        actionEvent = "Start Codon (ATG)";
+        this.logToConsole(`[ORF START] Start Codon 'ATG' identified at pos ${this.currentIndex - 2}..${this.currentIndex}. Translation initiated.`, "info");
       } else if (stepLog.event === "STOP_CODON_ACCEPTED") {
+        actionEvent = "Stop Codon Accepted";
         const lastOrf = this.orfDfa.discoveredOrfs[this.orfDfa.discoveredOrfs.length - 1];
-        this.logToConsole(`[DFA ACCEPT] Stop Codon '${lastOrf.stopCodon}' recognized! ORF Validated: length ${lastOrf.length} bp (${lastOrf.codons.length} codons).`, "success");
+        if (lastOrf) {
+          this.findings.push({
+            type: "orf",
+            title: `Open Reading Frame (${lastOrf.length} bp)`,
+            start: lastOrf.startIndex,
+            end: lastOrf.endIndex,
+            length: lastOrf.length,
+            stopCodon: lastOrf.stopCodon,
+            codonsCount: lastOrf.codons.length,
+            protein: lastOrf.proteinSequence || "Met..."
+          });
+          this.renderFindings();
+          this.logToConsole(`[ORF COMPLETE] Stop Codon '${lastOrf.stopCodon}' recognized! ORF validated: ${lastOrf.length} bp, ${lastOrf.codons.length} codons [${lastOrf.proteinSequence}].`, "success");
+        }
+      } else if (stepLog.event === "IN_CODON") {
+        actionEvent = `Codon Pos ${stepLog.codonPos}/3`;
+      } else {
+        actionEvent = "Scanning";
       }
 
     } else if (this.mode === "motif_dfa") {
       stepLog = this.motifDfa.step(char, this.currentIndex);
       isAccepted = stepLog.isAccepted;
+      actionState = stepLog.nextState;
+      actionDesc = this.motifDfa.getStateDescription();
 
       const trans = { from: stepLog.prevState, to: stepLog.nextState, symbol: char };
       this.sidebarGraph?.setActiveStates(stepLog.nextState, trans);
       this.centerGraph?.setActiveStates(stepLog.nextState, trans);
 
       if (isAccepted) {
-        this.logToConsole(`[DFA ACCEPT] Exact Motif '${this.targetMotif}' accepted at pos ${stepLog.index - this.targetMotif.length + 1}..${stepLog.index}!`, "success");
+        actionEvent = "Motif Match";
+        const startPos = stepLog.index - this.targetMotif.length + 1;
+        this.findings.push({
+          type: "motif",
+          title: `Restriction Cleavage Site: ${this.targetMotif}`,
+          start: startPos,
+          end: stepLog.index,
+          length: this.targetMotif.length,
+          motif: this.targetMotif
+        });
+        this.renderFindings();
+        this.logToConsole(`[CLEAVAGE SITE] Exact motif '${this.targetMotif}' accepted at pos ${startPos}..${stepLog.index}!`, "success");
+      } else {
+        actionEvent = `Match ${stepLog.matchLen}/${this.targetMotif.length}`;
       }
 
     } else if (this.mode === "mutation_nfa") {
       stepLog = this.mutationNfa.step(char, this.currentIndex);
       isAccepted = stepLog.isAccepted;
       isMutation = (stepLog.mutationFound && !stepLog.mutationFound.isPureWildType);
+      actionState = Array.from(stepLog.activeStates).join(", ");
+      actionDesc = this.mutationNfa.getStateDescription();
 
       this.sidebarGraph?.setActiveStates(Array.from(stepLog.activeStates));
       this.centerGraph?.setActiveStates(Array.from(stepLog.activeStates));
@@ -297,14 +409,42 @@ class DnaAutomataApp {
       if (stepLog.mutationFound) {
         const mf = stepLog.mutationFound;
         if (mf.isPureWildType) {
-          this.logToConsole(`[NFA MATCH] Perfect Wild-Type sequence matched at pos ${mf.startIndex}..${mf.acceptedAt}.`, "info");
+          actionEvent = "Wild-Type Match";
+          this.findings.push({
+            type: "wildtype",
+            title: `Wild-Type Pattern (${this.targetMotif})`,
+            start: mf.startIndex,
+            end: mf.acceptedAt,
+            pattern: this.targetMotif,
+            errors: 0
+          });
+          this.renderFindings();
+          this.logToConsole(`[WILD-TYPE] Perfect sequence match at pos ${mf.startIndex}..${mf.acceptedAt}.`, "info");
         } else {
-          this.logToConsole(`[NFA MUTATION ALERT] ${mf.classification} detected at pos ${mf.startIndex}..${mf.acceptedAt}!`, "error");
+          actionEvent = "SNP Mutation Alert";
+          const mutDetails = mf.mutations.map(m => `${m.expected}\u2192${m.actual} at pos ${m.patternIndex + 1}`).join(", ");
+          this.findings.push({
+            type: "mutation",
+            title: mf.classification,
+            start: mf.startIndex,
+            end: mf.acceptedAt,
+            pattern: this.targetMotif,
+            errors: mf.errors,
+            mutations: mf.mutations,
+            details: mutDetails
+          });
+          this.renderFindings();
+          this.logToConsole(`[MUTATION ALERT] ${mf.classification} detected at pos ${mf.startIndex}..${mf.acceptedAt} (${mutDetails})!`, "error");
         }
+      } else {
+        actionEvent = `${stepLog.activeStates.size} State${stepLog.activeStates.size > 1 ? 's' : ''} Active`;
       }
     }
 
-    // Update 3D Helix Scanner & Higgs-Field
+    // Update Action Explainer Card
+    this.updateActionCard(actionState, actionEvent, actionDesc);
+
+    // Update 3D Helix Scanner & Camera Follow
     if (this.helix3D) {
       this.helix3D.highlightBase(this.currentIndex, isAccepted, isMutation);
     }
@@ -317,6 +457,79 @@ class DnaAutomataApp {
     this.updateSequenceViewer();
 
     this.currentIndex++;
+  }
+
+  updateActionCard(stateText, eventText, descriptionHtml) {
+    const stateBadge = document.getElementById("action-state-badge");
+    const eventPill = document.getElementById("action-event-pill");
+    const descEl = document.getElementById("action-description-text");
+
+    if (stateBadge) stateBadge.innerText = stateText;
+    if (eventPill) {
+      eventPill.innerText = eventText;
+      eventPill.className = "action-event-pill";
+      if (eventText.includes("Mutation") || eventText.includes("Alert")) {
+        eventPill.classList.add("event-mutation");
+      } else if (eventText.includes("Match") || eventText.includes("Stop") || eventText.includes("Complete")) {
+        eventPill.classList.add("event-accept");
+      }
+    }
+    if (descEl) descEl.innerHTML = descriptionHtml;
+  }
+
+  renderFindings() {
+    const container = document.getElementById("findings-container");
+    if (!container) return;
+
+    if (!this.findings || this.findings.length === 0) {
+      container.innerHTML = `<div class="findings-empty-state">No genetic features identified yet in this run.</div>`;
+      return;
+    }
+
+    container.innerHTML = this.findings.map(f => {
+      let isMutation = f.type === "mutation";
+      let details = "";
+
+      if (f.type === "orf") {
+        details = `Stop: <code>${f.stopCodon}</code> &bull; Codons: ${f.codonsCount} &bull; Protein: <code>${f.protein}</code>`;
+      } else if (f.type === "mutation") {
+        details = `Target: <code>${f.pattern}</code> &bull; Variations: ${f.errors} &bull; ${f.details}`;
+      } else if (f.type === "motif") {
+        details = `Cleavage Recognition: <code>${f.motif}</code> (${f.length} bp)`;
+      } else if (f.type === "wildtype") {
+        details = `Exact Wild-Type Match: <code>${f.pattern}</code> (0 variations)`;
+      }
+
+      return `
+        <div class="finding-item ${isMutation ? 'mutation-item' : ''}">
+          <div class="finding-header">
+            <span>${f.title}</span>
+            <span style="font-family:var(--font-mono);font-size:0.65rem;color:var(--text-dim);">pos ${f.start}..${f.end}</span>
+          </div>
+          <div class="finding-body">${details}</div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  exportFindings() {
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      sequenceLength: this.sequence.length,
+      mode: this.mode,
+      preset: this.activePreset?.name || "Custom",
+      findingsCount: this.findings.length,
+      findings: this.findings
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `helixa-findings-${this.mode}-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    this.logToConsole(`[EXPORT] Saved ${this.findings.length} findings to JSON file.`, "info");
   }
 
   play() {
@@ -341,22 +554,9 @@ class DnaAutomataApp {
     if (!specContainer || !tableContainer) return;
 
     if (this.mode === "orf") {
-      specContainer.innerHTML = `
-        <div class="formal-tuple">
-          <span class="tuple-line"><strong>M<sub>ORF</sub></strong> = (<strong>Q</strong>, <strong>&Sigma;</strong>, <strong>&delta;</strong>, <strong>q<sub>scan</sub></strong>, <strong>{ q<sub>complete</sub> }</strong>)</span>
-          <div class="tuple-details">
-            <div><span class="tuple-key">Current State:</span> <span class="badge-active">${this.orfDfa.currentState}</span></div>
-            <div><span class="tuple-key">Reading Frame:</span> ${this.orfDfa.inOrf ? `Active (+1 Triplet: ${this.orfDfa.currentCodon || '...'})` : 'Scanning'}</div>
-            <div><span class="tuple-key">Discovered ORFs:</span> ${this.orfDfa.discoveredOrfs.length}</div>
-          </div>
-        </div>
-      `;
-      tableContainer.innerHTML = `
-        <div class="orf-state-summary">
-          <p><strong>DFA States:</strong> q_scan &rarr; q_A &rarr; q_AT &rarr; [q_c1, q_c2, q_c3] &rarr; q_complete</p>
-          <p>Accepts language: <code>L = ATG ( &Sigma;&Sigma;&Sigma; )* ( TAA | TAG | TGA )</code></p>
-        </div>
-      `;
+      const { tupleHtml, tableHtml } = FormalSpecGenerator.generateOrfSpec(this.orfDfa, this.orfDfa.currentState, currentSymbol);
+      specContainer.innerHTML = tupleHtml;
+      tableContainer.innerHTML = tableHtml;
     } else if (this.mode === "motif_dfa") {
       const { tupleHtml, tableHtml } = FormalSpecGenerator.generateDfaSpec(this.motifDfa, this.motifDfa.currentState, currentSymbol);
       specContainer.innerHTML = tupleHtml;
@@ -369,29 +569,41 @@ class DnaAutomataApp {
   }
 
   updateMetrics() {
-    // GC Content
     const subSeq = this.sequence.substring(0, Math.max(1, this.currentIndex));
     const gcCount = (subSeq.match(/[GC]/g) || []).length;
     const gcPercent = ((gcCount / subSeq.length) * 100).toFixed(1);
     
-    document.getElementById("metric-gc") && (document.getElementById("metric-gc").innerText = `${gcPercent}%`);
-    document.getElementById("metric-progress") && (document.getElementById("metric-progress").innerText = `${this.currentIndex} / ${this.sequence.length} bp`);
+    const pct = this.sequence.length > 0 ? Math.round((this.currentIndex / this.sequence.length) * 100) : 0;
+    const progressEl = document.getElementById("metric-progress");
+    if (progressEl) {
+      progressEl.innerText = `${this.currentIndex} / ${this.sequence.length} bp (${pct}%)`;
+    }
 
-    // Discovered Orfs / Matches
+    const gcEl = document.getElementById("metric-gc");
+    if (gcEl) {
+      gcEl.innerText = `${gcPercent}%`;
+    }
+
+    // Dynamic Findings Count & Label
+    const eventsLabel = document.getElementById("metric-events-label");
+    const eventsEl = document.getElementById("metric-events");
+
     if (this.mode === "orf") {
-      document.getElementById("metric-events-label") && (document.getElementById("metric-events-label").innerText = "ORFs Validated");
-      document.getElementById("metric-events") && (document.getElementById("metric-events").innerText = `${this.orfDfa.discoveredOrfs.length}`);
+      if (eventsLabel) eventsLabel.innerText = "ORFs Validated";
+      if (eventsEl) eventsEl.innerText = `${this.orfDfa.discoveredOrfs.length} found`;
     } else if (this.mode === "motif_dfa") {
-      document.getElementById("metric-events-label") && (document.getElementById("metric-events-label").innerText = "Motifs Found");
-      document.getElementById("metric-events") && (document.getElementById("metric-events").innerText = `${this.motifDfa.matches.length}`);
+      if (eventsLabel) eventsLabel.innerText = "Motifs Found";
+      if (eventsEl) eventsEl.innerText = `${this.motifDfa.matches.length} matches`;
     } else {
-      document.getElementById("metric-events-label") && (document.getElementById("metric-events-label").innerText = "Mutations Detected");
-      document.getElementById("metric-events") && (document.getElementById("metric-events").innerText = `${this.mutationNfa.detectedMutations.filter(m => !m.isPureWildType).length}`);
+      const mutCount = this.mutationNfa.detectedMutations.filter(m => !m.isPureWildType).length;
+      if (eventsLabel) eventsLabel.innerText = "Mutations Detected";
+      if (eventsEl) eventsEl.innerText = `${mutCount} identified`;
     }
   }
 
   updateSequenceViewer() {
     const viewer = document.getElementById("sequence-stream");
+    const contextPill = document.getElementById("stream-context-pill");
     if (!viewer) return;
 
     const windowSize = 40;
@@ -402,11 +614,16 @@ class DnaAutomataApp {
     for (let i = start; i < end; i++) {
       const char = this.sequence[i];
       const isCurrent = (i === this.currentIndex);
-      const color = BASE_COLORS[char]?.css || "#fff";
+      const color = BASE_COLORS[char]?.css || "#ffffff";
       html += `<span class="stream-char ${isCurrent ? 'char-current' : ''}" style="color:${color}">${char}</span>`;
     }
 
     viewer.innerHTML = html;
+
+    if (contextPill) {
+      const char = this.sequence[this.currentIndex] || "-";
+      contextPill.innerText = `Base ${this.currentIndex + 1} / ${this.sequence.length} [${char}]`;
+    }
   }
 
   logToConsole(msg, type = "normal") {
@@ -444,12 +661,19 @@ class DnaAutomataApp {
       this.resetSimulation();
     });
 
-    // Speed Slider
+    // Speed Slider & Speed Preset Pills
     const speedSlider = document.getElementById("speed-slider");
     if (speedSlider) {
       speedSlider.addEventListener("input", (e) => {
         this.stepSpeedMs = parseInt(e.target.value, 10);
-        document.getElementById("speed-display") && (document.getElementById("speed-display").innerText = `${this.stepSpeedMs}ms`);
+        const speedDisplay = document.getElementById("speed-display");
+        if (speedDisplay) speedDisplay.innerText = `${this.stepSpeedMs} ms / base`;
+
+        // Sync speed pills
+        document.querySelectorAll(".speed-pill").forEach(p => {
+          p.classList.toggle("active", parseInt(p.dataset.speed, 10) === this.stepSpeedMs);
+        });
+
         if (this.isPlaying) {
           this.pause();
           this.play();
@@ -457,9 +681,37 @@ class DnaAutomataApp {
       });
     }
 
+    document.querySelectorAll(".speed-pill").forEach(pill => {
+      pill.addEventListener("click", () => {
+        document.querySelectorAll(".speed-pill").forEach(p => p.classList.remove("active"));
+        pill.classList.add("active");
+        const speed = parseInt(pill.dataset.speed, 10);
+        this.stepSpeedMs = speed;
+        if (speedSlider) speedSlider.value = String(speed);
+        const speedDisplay = document.getElementById("speed-display");
+        if (speedDisplay) speedDisplay.innerText = `${speed} ms / base`;
+        if (this.isPlaying) {
+          this.pause();
+          this.play();
+        }
+      });
+    });
+
     // Mode Selector
     document.getElementById("mode-select")?.addEventListener("change", (e) => {
       this.setMode(e.target.value);
+    });
+
+    // Tolerance Selector (SNP k)
+    document.getElementById("tolerance-select")?.addEventListener("change", (e) => {
+      this.tolerance = parseInt(e.target.value, 10);
+      this.resetSimulation();
+    });
+
+    // Reading Frame Selector
+    document.getElementById("frame-select")?.addEventListener("change", (e) => {
+      this.readingFrame = parseInt(e.target.value, 10);
+      this.resetSimulation();
     });
 
     // Custom Sequence Change
@@ -467,8 +719,94 @@ class DnaAutomataApp {
       this.resetSimulation();
     });
 
+    // Target Motif Change
     document.getElementById("motif-input")?.addEventListener("input", () => {
       this.resetSimulation();
+    });
+
+    // Quick Motif Preset Pills
+    document.querySelectorAll(".quick-pill").forEach(pill => {
+      pill.addEventListener("click", () => {
+        const motif = pill.dataset.motif;
+        if (!motif) return;
+        const motifInput = document.getElementById("motif-input");
+        if (motifInput) motifInput.value = motif;
+        this.targetMotif = motif;
+        this.resetSimulation();
+      });
+    });
+
+    // DNA Sequence Actions (Upload, Clean, Reverse Complement)
+    const fileUpload = document.getElementById("file-upload");
+    document.getElementById("btn-upload-file")?.addEventListener("click", () => {
+      fileUpload?.click();
+    });
+
+    fileUpload?.addEventListener("change", (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const raw = ev.target.result || "";
+        const lines = raw.split(/\r?\n/);
+        const cleaned = lines
+          .filter(l => !l.trim().startsWith(">"))
+          .join("")
+          .replace(/[^a-zA-Z]/g, "")
+          .replace(/U/gi, "T")
+          .toUpperCase();
+
+        const seqInput = document.getElementById("sequence-input");
+        if (seqInput) seqInput.value = cleaned;
+        this.logToConsole(`[FILE IMPORT] Loaded ${file.name} (${cleaned.length} bp).`, "info");
+        this.resetSimulation();
+      };
+      reader.readAsText(file);
+    });
+
+    document.getElementById("btn-clean-seq")?.addEventListener("click", () => {
+      const seqInput = document.getElementById("sequence-input");
+      if (!seqInput) return;
+      const lines = seqInput.value.split(/\r?\n/);
+      const cleaned = lines
+        .filter(l => !l.trim().startsWith(">"))
+        .join("")
+        .replace(/[^a-zA-Z]/g, "")
+        .replace(/U/gi, "T")
+        .toUpperCase();
+      seqInput.value = cleaned;
+      this.logToConsole(`[CLEAN] Sanitized sequence (${cleaned.length} valid nucleotides, non-bases removed).`, "info");
+      this.resetSimulation();
+    });
+
+    document.getElementById("btn-rev-comp")?.addEventListener("click", () => {
+      const seqInput = document.getElementById("sequence-input");
+      if (!seqInput) return;
+      const clean = seqInput.value.replace(/[^a-zA-Z]/g, "").toUpperCase();
+      const complement = { 'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C' };
+      const revComp = clean.split("").reverse().map(b => complement[b] || b).join("");
+      seqInput.value = revComp;
+      this.logToConsole(`[REV COMP] Inverted to Reverse Complement (3'\u21925' antiparallel strand, ${revComp.length} bp).`, "info");
+      this.resetSimulation();
+    });
+
+    // Helix Stage Toolbar Controls
+    const btnTrack = document.getElementById("btn-helix-track");
+    btnTrack?.addEventListener("click", () => {
+      this.trackHelix = !this.trackHelix;
+      btnTrack.classList.toggle("active", this.trackHelix);
+      this.helix3D?.setAutoTrack(this.trackHelix);
+    });
+
+    const btnRotate = document.getElementById("btn-helix-rotate");
+    btnRotate?.addEventListener("click", () => {
+      this.rotateHelix = !this.rotateHelix;
+      btnRotate.classList.toggle("active", this.rotateHelix);
+      this.helix3D?.setAutoRotate(this.rotateHelix);
+    });
+
+    document.getElementById("btn-helix-reset-cam")?.addEventListener("click", () => {
+      this.helix3D?.resetCamera();
     });
 
     // Center Stage View Switcher Tabs
@@ -481,7 +819,16 @@ class DnaAutomataApp {
       this.setCenterView("automata");
     });
 
-    // Sidebar Arcs Toggle (All Transitions vs Backbone)
+    // Export Findings & Clear Logs
+    document.getElementById("btn-export-findings")?.addEventListener("click", () => {
+      this.exportFindings();
+    });
+
+    document.getElementById("btn-clear-logs")?.addEventListener("click", () => {
+      this.clearLogs();
+    });
+
+    // Sidebar Arcs Toggle
     let sidebarArcsAll = true;
     const btnSidebarArcs = document.getElementById("btn-sidebar-arcs-toggle");
     btnSidebarArcs?.addEventListener("click", () => {
@@ -537,7 +884,6 @@ class DnaAutomataApp {
     const handleStateSelected = (e) => {
       const stateId = e.detail?.stateId;
       if (!stateId) return;
-      // Find row in automata table with this state
       const tableRows = document.querySelectorAll(".automata-table tbody tr");
       tableRows.forEach(row => {
         const isMatch = row.textContent.includes(stateId);
@@ -551,7 +897,7 @@ class DnaAutomataApp {
     document.getElementById("state-graph-canvas")?.addEventListener("state-selected", handleStateSelected);
     document.getElementById("center-graph-canvas")?.addEventListener("state-selected", handleStateSelected);
 
-    // Fullscreen toggle
+    // Fullscreen Toggle
     const fsBtn = document.getElementById("btn-fullscreen");
     if (fsBtn) {
       fsBtn.addEventListener("click", () => {
@@ -572,7 +918,7 @@ class DnaAutomataApp {
   }
 }
 
-// Instantiate upon window load
+// Instantiate application upon window DOM ready
 window.addEventListener("DOMContentLoaded", () => {
   window.app = new DnaAutomataApp();
 });

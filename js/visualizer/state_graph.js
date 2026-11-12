@@ -500,38 +500,23 @@ export class StateGraphVisualizer {
     this.nodes = [];
     this.edges = [];
 
-    // Row 0: Wild-type (e=0)
-    // Row 1: Mutant / SNP (e=1)
-    const y0 = h * 0.32;
-    const y1 = h * 0.70;
+    // Rows 0..k (e=0 Wild-type, e>=1 Mutants)
+    for (let e = 0; e <= k; e++) {
+      const y = (k === 0) 
+        ? h * 0.5 
+        : h * (0.28 + (e / k) * 0.44);
 
-    for (let i = 0; i <= m; i++) {
-      // Row 0
-      this.nodes.push({
-        id: `q(${i},0)`,
-        label: `q(${i},0)`,
-        subLabel: `Match ${i}`,
-        x: pad + i * stepX,
-        y: y0,
-        r,
-        isStart: (i === 0),
-        isAccept: (i === m),
-        layer: 0,
-        pos: i
-      });
-
-      // Row 1 (if k >= 1)
-      if (k >= 1) {
+      for (let i = 0; i <= m; i++) {
         this.nodes.push({
-          id: `q(${i},1)`,
-          label: `q(${i},1)`,
-          subLabel: `SNP Err`,
+          id: `q(${i},${e})`,
+          label: `q(${i},${e})`,
+          subLabel: e === 0 ? `Match ${i}` : `Err ${e}`,
           x: pad + i * stepX,
-          y: y1,
+          y,
           r,
-          isStart: false,
+          isStart: (i === 0 && e === 0),
           isAccept: (i === m),
-          layer: 1,
+          layer: e,
           pos: i
         });
       }
@@ -551,36 +536,28 @@ export class StateGraphVisualizer {
     for (let i = 0; i < m; i++) {
       const matchChar = nfa.pattern[i];
 
-      // Exact match horizontal transitions
-      this.edges.push({
-        from: `q(${i},0)`,
-        to: `q(${i + 1},0)`,
-        symbols: [matchChar],
-        label: matchChar,
-        type: "forward",
-        isBackbone: true
-      });
-
-      if (k >= 1) {
-        // Mutant exact match horizontal
+      // Exact match horizontal transitions for every error level e
+      for (let e = 0; e <= k; e++) {
         this.edges.push({
-          from: `q(${i},1)`,
-          to: `q(${i + 1},1)`,
+          from: `q(${i},${e})`,
+          to: `q(${i + 1},${e})`,
           symbols: [matchChar],
           label: matchChar,
           type: "forward",
-          isBackbone: true
+          isBackbone: (e === 0)
         });
 
-        // SNP Mutation diagonal downward transition
-        this.edges.push({
-          from: `q(${i},0)`,
-          to: `q(${i + 1},1)`,
-          symbols: ["\u2260" + matchChar],
-          label: `SNP (\u2260${matchChar})`,
-          type: "mutation",
-          isBackbone: false
-        });
+        // SNP Mutation diagonal downward transition to e + 1
+        if (e < k) {
+          this.edges.push({
+            from: `q(${i},${e})`,
+            to: `q(${i + 1},${e + 1})`,
+            symbols: ["\u2260" + matchChar],
+            label: `\u2260${matchChar}`,
+            type: "mutation",
+            isBackbone: false
+          });
+        }
       }
     }
   }
